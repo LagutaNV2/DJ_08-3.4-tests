@@ -4,12 +4,14 @@
 import json
 import pytest
 from django.urls import reverse
+from override_settings import override_settings
 from rest_framework.test import APIClient
 from model_bakery import baker
 
 from django.core.exceptions import ValidationError
 from django.conf import settings
 
+from django_testing.settings import MAX_STUDENTS_PER_COURSE
 from students.models import Course, Student
 
 
@@ -26,7 +28,6 @@ def course_factory():
     '''
        фикстура для фабрики курсов
     '''
-    
     def factory(*args, **kwargs):
         return baker.make(Course, *args, **kwargs)
     
@@ -38,7 +39,6 @@ def student_factory():
     '''
         фикстура для фабрики студентов
     '''
-    
     def factory(*args, **kwargs):
         return baker.make(Student, *args, **kwargs)
     
@@ -46,7 +46,7 @@ def student_factory():
 
 
 @pytest.mark.django_db
-def test_get_one_course(client, course_factory):
+def test_get_retrieve_course(client, course_factory):
     '''
         проверка получения первого курса (retrieve-логика):
         - создаем курс через фабрику;
@@ -56,16 +56,18 @@ def test_get_one_course(client, course_factory):
     course = course_factory(_quantity=1)[0]
     
     # url = reverse("courses")
+    # print(f'{url=}, / {course.id=}')
     # response = client.get(f'{url}/{course.id}/')
-    
+   
     response = client.get(f'/api/v1/courses/{course.id}/')
+    # print(f'  test1: {response.json()=}')
     
     assert response.status_code == 200
     data = response.json()
     assert data['name'] == course.name
 
 @pytest.mark.django_db
-def test_get_courses(client, course_factory):
+def test_get_list_courses(client, course_factory):
     '''
         проверка получения списка курсов (list-логика):
         аналогично — сначала вызываем фабрики, затем делаем запрос и проверяем результат
@@ -73,27 +75,31 @@ def test_get_courses(client, course_factory):
     courses = course_factory(_quantity=10)
 
     response = client.get('/api/v1/courses/')
+    print(f'  test2: {response.json()=}')
 
     assert response.status_code == 200
     data = response.json()
     assert len(data) == len(courses)
-    for i, m in enumerate(data):
-        assert m['name'] == courses[i].name
+    for i, j in enumerate(data):
+        print(f'тест-2 enumerate of data: {i=}, {j=}')
+        assert courses[i].name == j['name']
 
 
 @pytest.mark.django_db
-def test_filter_by_id(client, course_factory):
+def test_filter_id(client, course_factory):
     '''
         проверка фильтрации списка курсов по id:
            -создаем курсы через фабрику,
            -передать ID одного курса в фильтр,
            -проверить результат запроса с фильтром
     '''
+    
+    courses = course_factory(_quantity=10)
+    course_id = courses[5].id
 
-    course_id = course_factory(_quantity=100)[10].id
-
-    response = client.get('/api/v1/courses/', {'id': f'{course_id}'})
-
+    response = client.get('/api/v1/courses/', {'id': course_id})
+    print(f'  test3: {response.json()=}')
+    
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1
@@ -101,11 +107,13 @@ def test_filter_by_id(client, course_factory):
 
 
 @pytest.mark.django_db
-def test_filter_by_name(client, course_factory):
+def test_filter_name(client, course_factory):
     ''' проверка фильтрации списка курсов по name'''
-    course_name = course_factory(_quantity=100)[10].name
-
-    response = client.get('/api/v1/courses/', {'name': f'{course_name}'})
+    courses = course_factory(_quantity=100)
+    course_name = courses[10].name
+    
+    response = client.get('/api/v1/courses/', {'name': course_name})
+    # print(f'  test4: {response.json()=}')
 
     assert response.status_code == 200
     data = response.json()
@@ -119,6 +127,7 @@ def test_create_course(client):
     course_data = {'name': 'primer'}
 
     response = client.post('/api/v1/courses/', data=course_data)
+    # print(f'  test5: {response.json()=}')
 
     assert response.status_code == 201
     data = response.json()
@@ -132,10 +141,12 @@ def test_update_course(client, course_factory):
         сначала через фабрику создаём, потом обновляем JSON-данными
     '''
     course = course_factory(_quantity=1)
-    course_data = {'name': 'Primer'}
+    course_id = course[0].id
+    new_data = {'name': 'Primer'}
 
-    response = client.patch(f'/api/v1/courses/{course[0].id}/', data=course_data)
-
+    response = client.patch(f'/api/v1/courses/{course_id}/', data=new_data)
+    # print(f'  test6: {response.json()=}')
+    
     assert response.status_code == 200
     data = response.json()
     assert data['name'] == 'Primer'
@@ -144,8 +155,30 @@ def test_update_course(client, course_factory):
 @pytest.mark.django_db
 def test_delete_course(client, course_factory):
     ''' тест успешного удаления курса'''
-    course = course_factory(_quantity=1)[0]
+    course = course_factory(_quantity=1)
+    course_id = course[0].id
 
-    response = client.delete(f'/api/v1/courses/{course.id}/')
+    response = client.delete(f'/api/v1/courses/{course_id}/')
+    print(f'  test7: {response=}')
 
     assert response.status_code == 204
+
+
+# дополнительное задание: ограничить число студентов на курсе
+# @pytest.mark.django_db
+# # @override_settings(MAX_STUDENTS_PER_COURSE, 2)
+# # @pytest.mark.parametrize("count, is_error", [
+# #     (settings.MAX_STUDENTS_PER_COURSE - 1, False),
+# #     (settings.MAX_STUDENTS_PER_COURSE + 1, True),
+# # ])
+# def test_max_student(client, course_factory, student_factory):
+#     course = course_factory(_quantity=1)[0]
+#     students = student_factory(_quantity=20)
+#     course.students.extend(*students)
+#
+#     # if is_error:
+#     #     with pytest.raises(ValidationError,
+#     #                        match=f"Максимальное число студентов на курсе: {settings.MAX_STUDENTS_PER_COURSE}"):
+#     #         course.clean()
+#     # else:
+#     #     course.clean()
